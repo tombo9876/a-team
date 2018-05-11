@@ -10,20 +10,27 @@ public class Game {
 
     private GameBoard board;
     private boolean gameStarted;
-    public boolean classicMode = false;
+    private int difficulty =
+            0; // 0 (easy), 1 (medium), 2 (hard) for setting number of face up cards.  Probably
+    // should be an enum
+    // TODO make this a server command line argument configurable or make it configurable by clients
     public PlayerMgr players;
+
+    private long prngSeed;
 
     Suggestion suggestion;
 
-    public Game() {
+    public Game(long seed, int difficulty) {
         gameStarted = false;
+        prngSeed = seed;
+        this.difficulty = difficulty;
         players = new PlayerMgr();
         board = new GameBoard();
     }
 
     public Message processMessage(Message msg) {
         Player player;
-        logger.debug("Processing the message");
+        logger.trace("Processing the message");
 
         switch (msg.getMessageID()) {
             case MESSAGE_CLIENT_CONNECTED:
@@ -41,15 +48,23 @@ public class Game {
             case MESSAGE_CHAT_FROM_CLIENT:
                 // Chat from client
                 logger.info("Chat from client: " + msg.getMessageData());
-                msg.setBroadcast(true);
-                return msg;
+
+                String messageWithUsername =
+                        players.byUuid(msg.getFromUuid()).getUsername() + ": " + msg.asString();
+
+                Message override = Message.chatMessage(messageWithUsername);
+                override.setBroadcast(true);
+                return override;
             case MESSAGE_CHAT_FROM_SERVER:
                 // This shouldn't happen
                 logger.info("Chat from server: " + msg.getMessageData());
                 break;
             case MESSAGE_CLIENT_CONFIG:
                 // Client picked a suspect (and username, any other configurables, etc)
-                SuspectCard pickedSuspect = (SuspectCard) msg.getMessageData();
+                Configuration config = msg.asConfigData();
+                SuspectCard pickedSuspect = config.getSuspectCard();
+                String username = config.getUsername();
+
                 for (Suspect s : board.getAllSuspects()) {
                     if (s.getSuspect().equals(pickedSuspect)) {
                         // BUG: I feel a race condition here.
@@ -61,7 +76,7 @@ public class Game {
                         }
                     }
                 }
-                players.add(pickedSuspect, msg.getFromUuid());
+                players.add(pickedSuspect, msg.getFromUuid(), username);
                 // TODO: Develop acknowledgement
                 break;
             case MESSAGE_CLIENT_MOVE:
@@ -69,8 +84,8 @@ public class Game {
                 player = players.current();
                 if (player.uuid.equals(msg.getFromUuid())) {
                     Suspect suspect = board.getSuspectByCard(player.getSuspect());
-                    DirectionsEnum dir = (DirectionsEnum) msg.getMessageData();
-                    if (suspect.move(board, dir)) {
+                    DirectionsEnum dir = msg.asDirectionsEnum();
+                    if (suspect.move(dir)) {
                         // valid move
                         // the person can now accuse or end their turn
                     } else {
@@ -82,25 +97,26 @@ public class Game {
                 // move from non-active player
                 else {
                     logger.info("Non-active player tried to move!");
-                    return Message.failedMove("Non-active player tried to move!");
+                    return Message.serverMessage("Non-active player tried to move!");
                 }
                 break;
             case MESSAGE_CLIENT_SUGGEST:
 
                 // handle the suggestion
                 if (players.current().uuid.equals(msg.getFromUuid())) {
+                    logger.debug("Suggesting...");
                     players.setSuggestionPlayer();
-                    // TODO Move the suspect and weapon into the suggestion room
-                    suggestion = (Suggestion) msg.getMessageData();
+
+                    suggestion = msg.asSuggestion();
+                    logger.debug(suggestion);
 
                     board.getSuspectByCard(suggestion.getSuspect())
-                            .moveForSuggestion(board, suggestion.getRoom());
+                            .moveForSuggestion(suggestion.getRoom());
                     board.getWeaponByCard(suggestion.getWeapon())
-                            .moveForSuggestion(board, suggestion.getRoom());
+                            .moveForSuggestion(suggestion.getRoom());
 
-                    // TODO: Fix me.
                     Message response =
-                            Message.relaySuggestion(null, players.getNextDisprovePlayer());
+                            Message.relaySuggestion(suggestion, players.getNextDisprovePlayer());
                     response.setBroadcast(true);
                     return response;
                 }
@@ -108,11 +124,16 @@ public class Game {
                 break;
             case MESSAGE_CLIENT_ACCUSE:
                 if (players.current().uuid.equals(msg.getFromUuid())) {
-                    if (handleAccuse((Suggestion) msg.getMessageData())) {
+                    if (handleAccuse(msg.asSuggestion())) {
                         // Win!
                         // End the game, alert everybody
+                        // @todo Perhaps a client ID or username would be better?
                         gameStarted = false;
-                        Message endMessage = Message.winMessage(players.current().getSuspect());
+                        Message endMessage =
+                                Message.serverMessage(
+                                        "The game has been won by "
+                                                + players.current().getSuspect()
+                                                + "!");
                         endMessage.setBroadcast(true);
                         return endMessage;
                     } else {
@@ -120,24 +141,37 @@ public class Game {
                         // Don't allow the player to continue making moves, but they must remain to
                         // disprove suggestions
                         players.current().setPlaying(false);
-                        players.setNextPlayer();
+                        if (!players.setNextPlayer()) {
+                            logger.info("No more active players!  Game is ending!");
+                            gameStarted = false;
+                            Message endMessage =
+                                    Message.serverMessage(
+                                            "All players have made incorrect accusations! The game is over!");
+                            endMessage.setBroadcast(true);
+                            return endMessage;
+                        }
                         logger.info("Bad accusation!");
-                        return Message.failedMove(
+                        return Message.serverMessage(
                                 "Bad accusation!  You must sit out the rest of the game.");
                     }
                 }
                 logger.info("Non-active player tried to accuse!");
-                return Message.failedMove("Non-active player tried to accuse!");
+                return Message.serverMessage("Non-active player tried to accuse!");
             case MESSAGE_CLIENT_END_TURN:
-                players.setNextPlayer();
+                if (players.current().uuid.equals(msg.getFromUuid())) {
+                    players.setNextPlayer();
+                }
                 break;
             case MESSAGE_PULSE:
                 // return echo request
                 player = players.byUuid(msg.getFromUuid());
+                if (player != null) {
+                    player.setPulseTime();
+                }
                 return Message.sendGameStatePulse(
                         new GameStatePulse(gameStarted, board, players, player));
             case MESSAGE_CLIENT_RESPONSE_SUGGEST:
-                Card proof = (Card) msg.getMessageData();
+                Card proof = msg.asCard();
                 if (proof != null) {
                     // The disproving player was able to disprove
                     // Let the suggesting player know
@@ -162,7 +196,22 @@ public class Game {
                     response.setToUuid(players.getSuggestionPlayer().uuid.toString());
                     return response;
                 }
-
+            case MESSAGE_INTERNAL_SERVER_REMOVE_PLAYER:
+                Player playerToRemove = msg.asPlayer();
+                for (Suspect s : board.getAllSuspects()) {
+                    if (s.getSuspect().equals(playerToRemove.getSuspect())) {
+                        if (!s.getActive()) {
+                            logger.info("Suspect not active!");
+                        } else {
+                            s.setActive(false);
+                            players.getArray().remove(playerToRemove);
+                        }
+                    }
+                }
+                break;
+            case MESSAGE_INTERNAL_SERVER_END_GAME:
+                setGameStarted(false);
+                break;
             default:
                 break;
         }
@@ -177,8 +226,8 @@ public class Game {
                 return gameStarted;
             }
 
-            board.dealCards(players);
-            gameStarted = true;
+            board.dealCards(players, prngSeed, difficulty);
+            setGameStarted(true);
             // TODO: Make scarlet the activePlayerRef
             // TODO: All users should be using peice nearest to them
             //       and all peices have a starting location
@@ -186,6 +235,14 @@ public class Game {
             //       therefore the turn ordering is always the same.
             // players.setNextPlayer();
         }
+        return getGameStarted();
+    }
+
+    private void setGameStarted(boolean gameStarted) {
+        this.gameStarted = gameStarted;
+    }
+
+    public boolean getGameStarted() {
         return gameStarted;
     }
 

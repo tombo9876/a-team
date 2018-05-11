@@ -7,12 +7,22 @@ import java.nio.ByteBuffer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * A class for converting a ByteBuffer to an InputStream
+ *
+ * @author ateam
+ */
 public class ByteBufferBackedInputStream extends InputStream {
 
     private static final Logger logger = LogManager.getLogger(ByteBufferBackedInputStream.class);
 
     ByteBuffer buf;
 
+    /**
+     * Constructor
+     *
+     * @param buf Buffer to send to InputStream (for reading)
+     */
     public ByteBufferBackedInputStream(ByteBuffer buf) {
         this.buf = buf;
     }

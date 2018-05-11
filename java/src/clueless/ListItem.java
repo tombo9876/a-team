@@ -1,78 +1,61 @@
 package clueless;
 
-public abstract class ListItem /*implements Iterable<ListItem>*/ {
+/**
+ * Represents an item in a (internally) linked list.
+ *
+ * <p>Note: This linked list ListItem is modeled off the Linux Kernel list.h
+ *
+ * @author ateam
+ */
+public abstract class ListItem {
 
     public ListItem prev;
     public ListItem next;
 
+    /** Constructor */
     public ListItem() {
+        init();
+    }
+
+    /** (Re-) Initializer of linked list item */
+    public void init() {
         prev = this;
         next = this;
     }
 
+    /**
+     * Fetch the next item
+     *
+     * @return ListItem of next item in list
+     */
     public ListItem getNext() {
         return next;
     }
 
-    public void insertBefore(ListItem elem) {
-        elem.prev = prev;
-        elem.next = this;
-        prev.next = elem;
-        prev = elem;
+    /**
+     * Fetch the previous item
+     *
+     * @return ListItem of previous item in list
+     */
+    public ListItem getPrev() {
+        return prev;
     }
 
-    public void insertAfter(ListItem elem) {
-        elem.prev = this;
-        elem.next = next;
-        next.prev = elem;
-        next = elem;
+    private static void _add(ListItem nitem, ListItem prev, ListItem next) {
+        next.prev = nitem;
+        nitem.next = next;
+        nitem.prev = prev;
+        prev.next = nitem;
     }
 
-    public static void addItem(ListItem list, ListItem nitem) {
-        if (list == null) {
-            list = nitem;
-            return;
-        }
-
+    /**
+     * Add list item to tail.
+     *
+     * @param nitem New item to add to linked list.
+     * @param list List to add new item to.
+     */
+    public static void addToTail(ListItem nitem, ListItem list) {
         // This effectively adds to tail.
-        list.insertBefore(nitem);
+        _add(nitem, list.prev, list);
     }
-
-    /*@Override
-    public Iterator<ListItem> iterator() {
-        return new ListItemIterator(this);
-    }
-
-    public class ListItemIterator implements Iterator<ListItem> {
-        ListItem head;
-        ListItem item;
-
-        public ListItemIterator(ListItem list) {
-            if (list == null) {
-                head = null;
-                return;
-            }
-            head = list;
-            item = head;
-        }
-
-        @Override
-        public boolean hasNext() {
-            if (head == null || item == null) {
-                return false;
-            }
-            return true;
-        }
-
-        @Override
-        public ListItem next() {
-            if (!hasNext()) {
-                // TODO Is this correct?
-                return null;
-            }
-
-            item = item.getNext();
-            return item;
-        }
-    }*/
 }

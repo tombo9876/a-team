@@ -1,11 +1,27 @@
 package clueless.client;
 
 import clueless.*;
+import clueless.io.Message;
 import java.util.ArrayList;
+import java.util.Map.Entry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * Represents a client's local state of the Game
+ *
+ * @author ateam
+ */
 public class ClientState {
+
+    private static final Logger logger = LogManager.getLogger(ClientState.class);
+
+    private EventHandler evtHdlr;
+    private Client client;
+    private Watchdog watchdog;
+    private Thread watchdogThread;
+    private Heartbeat heartbeat;
+    private Thread heartbeatThread;
 
     private AvailableSuspects availableSuspects;
     private boolean configured = false;
@@ -15,38 +31,108 @@ public class ClientState {
     private boolean alerted = false;
     private boolean moved = false;
     private boolean suggested = false;
-    private Integer myLocation;
+    private boolean movedBySuggestion = false;
+    private Integer myLocation = 0;
     private ArrayList<Card> cards;
     private ArrayList<Card> faceUpCards;
-    private ArrayList<Card> disproveCards;
+    public ArrayList<Card> disproveCards;
     private boolean disproving = false;
-
-    private static final Logger logger = LogManager.getLogger(ClientState.class);
+    private Notebook notebook;
 
     public ClientState() {
+        this(10000);
+    }
+
+    /**
+     * Default constructor
+     *
+     * @param wdTimeout the watchdog timeout interval
+     */
+    public ClientState(long wdTimeout) {
         setCards(new ArrayList<Card>());
         setFaceUpCards(new ArrayList<Card>());
         setDisproveCards(new ArrayList<Card>());
+
+        // Default to noop evthdlr
+        this.evtHdlr = new EventHandler();
+
+        watchdog = new Watchdog(wdTimeout);
+        watchdog.pulse();
+        watchdogThread = new Thread(watchdog);
+
+        setNotebook(new Notebook());
     }
 
-    /** @return the gameState */
+    public void pulse() {
+        watchdog.pulse();
+    }
+
+    public void startup(EventHandler evtHdlr, String addr, String port) {
+        this.evtHdlr = evtHdlr;
+
+        // Initialize the Client link.
+        client = new Client(evtHdlr);
+        logger.info("Client UUID: " + client.uuid);
+
+        try {
+            logger.trace("argmap address " + addr);
+            logger.trace("argmap port " + port);
+            client.connect(addr, port);
+
+            // Do the initial available suspect fetch
+            client.sendMessage(Message.clientConnect());
+        } catch (Exception e) {
+            logger.error("Exception in connect client.");
+        }
+
+        // Start watchdog (must be done outside constructor)
+        watchdogThread.start();
+
+        // Heartbeat timeout should be at least half of watchdog timeout
+        heartbeat = new Heartbeat(client, 1000);
+        heartbeatThread = new Thread(heartbeat);
+        // Start heartbeat (must be done outside constructor)
+        heartbeatThread.start();
+    }
+
+    public void sendMessage(Message msg) {
+        try {
+            client.sendMessage(msg);
+        } catch (Exception e) {
+            logger.error("Failed to send Message: " + msg.getMessageID());
+        }
+    }
+
+    /**
+     * Fetch the most recent game state
+     *
+     * @return the gameState
+     */
     public GameStatePulse getGameState() {
         return gameState;
     }
 
-    /** @param gameState the gameState to set */
-    public void setGameState(GameStatePulse gameState) {
+    /**
+     * Set the game state
+     *
+     * @param gameState the gameState to set
+     * @return Returns null or String message for user
+     */
+    public String setGameState(GameStatePulse gameState) {
+        String retval = null;
         this.gameState = gameState;
+        this.gameState.normalize();
 
         if (!gameState.isGameActive()) {
             setAvailableSuspects(gameState.getAvailableSuspects());
-            return;
+            return null;
         }
 
         if (gameState.getActiveSuspect().equals(mySuspect)) {
             setMyTurn(true);
             if (!alerted) {
-                System.out.println("You are the active player!  Perform an action.\n");
+                logger.debug(getMySuspect());
+                retval = "You are the active player!  Perform an action.\n";
                 setMoved(false); // reset move so the player can move again when their turn begins
                 setSuggested(false);
                 alerted = true;
@@ -58,99 +144,189 @@ public class ClientState {
             }
         }
 
-        setMyLocation(gameState.getSuspectLocations().get(mySuspect));
+        // Bleh
+        for (Entry<SuspectCard, Integer> entry : gameState.getSuspectLocations().entrySet()) {
+            if (entry.getKey().equals(mySuspect)) {
+                // Check if we were moved by a suggestion, so the player does not have to move on
+                // their next
+                // turn to make a suggestion
+                if (getMyLocation() != 0) {
+                    if ((getMyLocation().compareTo(entry.getValue()) != 0) && !isMyTurn()) {
+                        setMovedBySuggestion(true);
+                    }
+                }
+
+                setMyLocation(entry.getValue());
+            }
+        }
 
         setCards(gameState.getCards());
         setFaceUpCards(gameState.getFaceUpCards());
+
+        return retval;
     }
 
-    /** @return the availableSuspects */
+    /**
+     * Fetch available suspects
+     *
+     * <p>TODO: AvailableSuspects wrapper should be striped at this point
+     *
+     * @return the availableSuspects
+     */
     public AvailableSuspects getAvailableSuspects() {
         return availableSuspects;
     }
 
-    /** @param availableSuspects the availableSuspects to set */
+    /**
+     * Set the AvailableSuspects
+     *
+     * @param availableSuspects the availableSuspects to set
+     */
     public void setAvailableSuspects(AvailableSuspects availableSuspects) {
         this.availableSuspects = availableSuspects;
     }
 
-    /** @return the configured */
+    /**
+     * Check if this client is registered/configured to play on server.
+     *
+     * @return the configured
+     */
     public boolean isConfigured() {
         return configured;
     }
 
-    /** @param configured the configured to set */
+    /**
+     * Set that this client is registered/configured to play on server
+     *
+     * @param configured the configured to set
+     */
     public void setConfigured(boolean configured) {
         this.configured = configured;
     }
 
-    /** @return the mySuspect */
+    /**
+     * Fetch the SuspectCard this client is registered with.
+     *
+     * @return the mySuspect
+     */
     public SuspectCard getMySuspect() {
         return mySuspect;
     }
 
-    /** @param mySuspect the mySuspect to set */
+    /**
+     * Set suspect that this client represents
+     *
+     * @param mySuspect the mySuspect to set
+     */
     public void setMySuspect(SuspectCard mySuspect) {
         this.mySuspect = mySuspect;
     }
 
-    /** @return the myTurn */
+    /**
+     * Check if this client is the current player to move, suggest, or accuse
+     *
+     * @return the myTurn
+     */
     public boolean isMyTurn() {
         return myTurn;
     }
 
-    /** @param myTurn the myTurn to set */
+    /**
+     * Set the client as the current player to move, suggest, or accuse
+     *
+     * @param myTurn the myTurn to set
+     */
     private void setMyTurn(boolean myTurn) {
         this.myTurn = myTurn;
     }
 
-    /** @return the moved */
+    /**
+     * Check if the client has moved its player this turn.
+     *
+     * @return the moved
+     */
     public boolean isMoved() {
         return moved;
     }
 
-    /** @param moved the moved to set */
+    /**
+     * Set whether the player has moved this turn
+     *
+     * @param moved the moved to set
+     */
     public void setMoved(boolean moved) {
         this.moved = moved;
     }
 
-    /** @return the cards */
+    /**
+     * Fetch an ArrayList of all the player cards
+     *
+     * @return the cards
+     */
     public ArrayList<Card> getCards() {
         return cards;
     }
 
-    /** @param cards the cards to set */
+    /**
+     * Set the ArrayList of all the player cards in the client.
+     *
+     * @param cards the cards to set
+     */
     public void setCards(ArrayList<Card> cards) {
         this.cards = cards;
     }
 
-    /** @return the faceUpCards */
+    /**
+     * Get all the face up cards on the GameBoard
+     *
+     * @return the faceUpCards
+     */
     public ArrayList<Card> getFaceUpCards() {
         return faceUpCards;
     }
 
-    /** @param faceUpCards the faceUpCards to set */
+    /**
+     * Set the face up cards on the gameboard for this client
+     *
+     * @param faceUpCards the faceUpCards to set
+     */
     public void setFaceUpCards(ArrayList<Card> faceUpCards) {
         this.faceUpCards = faceUpCards;
     }
 
-    /** @return the myLocation */
+    /**
+     * Get the location of this client's player's suspect.
+     *
+     * @return the myLocation
+     */
     public Integer getMyLocation() {
         return myLocation;
     }
 
-    /** @param myLocation the myLocation to set */
+    /**
+     * Set the location of the client's player's suspect.
+     *
+     * @param myLocation the myLocation to set
+     */
     public void setMyLocation(Integer myLocation) {
         this.myLocation = myLocation;
     }
 
     // This isn't the best way to do this.  Should probably be moved/handled differently.
-    public void disprove(Suggestion cards, boolean active) {
 
+    /**
+     * Disprove a suggestion
+     *
+     * @param cards Current suggestion
+     * @param active Whether the client is expected to perform a disprove now
+     */
+    public void disprove(Suggestion cards, boolean active) {
+        logger.debug(getMySuspect());
         if (active) {
             setDisproving(true);
             String toPrint = "";
             boolean found = false;
+
             System.out.println("You must disprove a suggestion of the following cards!");
 
             System.out.println("\t" + cards);
@@ -183,50 +359,110 @@ public class ClientState {
     }
 
     // This isn't the best way to do this.  Should probably be moved/handled differently.
-    public void suggestResponse(Card card, boolean active) {
 
-        System.out.println("The suggestion has been completed!\n");
+    /**
+     * Display conclusion of the suggestion sequence
+     *
+     * @param card The card that disproves the suggestion
+     * @param active Whether this client is the suggester or not.
+     */
+    public String suggestResponse(Card card, boolean active) {
+        String toReturn = "";
+        toReturn += "The suggestion has been completed!\n";
 
         if (card == null) {
-            System.out.println("The suggestion was unable to be disproven!");
-            return;
+            toReturn += "The suggestion was unable to be disproven!";
+            return toReturn;
         }
 
         if (active) {
-            System.out.println("The following card was disproven: " + card.getName());
+            toReturn += "The following card was disproven: " + card.getName();
         } else {
-            System.out.println("The suggestion was disproved!");
+            toReturn += "The suggestion was disproved!";
         }
+        return toReturn;
     }
 
-    /** @return the disproveCards */
+    /**
+     * Fetch the list of possible cards to use to disprove a suggestion.
+     *
+     * @return the disproveCards
+     */
     public ArrayList<Card> getDisproveCards() {
         return disproveCards;
     }
 
-    /** @param disproveCards the disproveCards to set */
+    /**
+     * Set the list of possible cards to use to disprove a suggestion.
+     *
+     * @param disproveCards the disproveCards to set
+     */
     public void setDisproveCards(ArrayList<Card> disproveCards) {
         this.disproveCards = disproveCards;
     }
 
-    /** @return the disproving */
+    /**
+     * Check if client is in a disprove state.
+     *
+     * @return the disproving
+     */
     public boolean isDisproving() {
         return disproving;
     }
 
-    /** @param disproving the disproving to set */
+    /**
+     * Set the disproving state.
+     *
+     * @param disproving the disproving to set
+     */
     public void setDisproving(boolean disproving) {
         this.disproving = disproving;
         setDisproveCards(new ArrayList<Card>());
     }
 
-    /** @return the suggested */
+    /**
+     * Check if a player has already suggested this turn.
+     *
+     * @return the suggested
+     */
     public boolean isSuggested() {
         return suggested;
     }
 
-    /** @param suggested the suggested to set */
+    /**
+     * Set that a player has suggested this turn.
+     *
+     * @param suggested the suggested to set
+     */
     public void setSuggested(boolean suggested) {
         this.suggested = suggested;
+    }
+
+    /**
+     * Check if a player was moved by another player's suggestion
+     *
+     * @return the movedBySuggestion
+     */
+    public boolean isMovedBySuggestion() {
+        return movedBySuggestion;
+    }
+
+    /**
+     * Set that a player was moved by a suggestion this turn
+     *
+     * @param movedBySuggestion the movedBySuggestion to set
+     */
+    public void setMovedBySuggestion(boolean movedBySuggestion) {
+        this.movedBySuggestion = movedBySuggestion;
+    }
+
+    /** @return the notebook */
+    public Notebook getNotebook() {
+        return notebook;
+    }
+
+    /** @param notebook the notebook to set */
+    public void setNotebook(Notebook notebook) {
+        this.notebook = notebook;
     }
 }

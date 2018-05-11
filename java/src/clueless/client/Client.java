@@ -1,5 +1,6 @@
 package clueless.client;
 
+import clueless.io.*;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -10,26 +11,30 @@ import org.zeromq.ZMQ.Context;
 import org.zeromq.ZMQ.Poller;
 import org.zeromq.ZMQ.Socket;
 
-import clueless.io.*;
-
-// TODO: This needs to become abstract
-import clueless.client.cli.CLIEventHandler;
-
-
+/**
+ * Represents a generic Client for interacting with the Clueless Server
+ *
+ * @author ateam
+ */
 public class Client implements Runnable {
 
     private static final Logger logger = LogManager.getLogger(Client.class);
 
     Context zmqContext;
     Socket socket;
-    // Socket chatSocket;
+
     public UUID uuid;
     ConcurrentLinkedQueue<Message> chatMessageQueue;
     Thread thread;
     // TODO: Make this abstract
-    CLIEventHandler evtHandler;
+    EventHandler evtHandler;
 
-    public Client(CLIEventHandler handler) {
+    /**
+     * Constructor
+     *
+     * @param handler EventHandler for the specific UI
+     */
+    public Client(EventHandler handler) {
         uuid = UUID.randomUUID();
         // Grab a context object with one I/O thread.
         zmqContext = ZMQ.context(1);
@@ -39,7 +44,14 @@ public class Client implements Runnable {
         evtHandler = handler;
     }
 
-    public boolean connect(String hostStr, String portStr) throws Exception {
+    /**
+     * Initialize a connection to the server
+     *
+     * @param hostStr Host address of the server (localhost if null)
+     * @param portStr TCP port of the server (port 2323 if null)
+     * @throws Exception If the connection thread couldn't be started
+     */
+    public void connect(String hostStr, String portStr) throws Exception {
         String host = "localhost";
         String port = "2323";
         if (hostStr != null) {
@@ -53,9 +65,14 @@ public class Client implements Runnable {
         socket.connect(connectionStr);
         thread = new Thread(this);
         thread.start();
-        return true;
     }
 
+    /**
+     * Send a message object to server
+     *
+     * @param msg Message to send to server
+     * @throws Exception when serialization fails
+     */
     public void sendMessage(Message msg) throws Exception {
         ByteBuffer buf;
         try {
@@ -68,6 +85,7 @@ public class Client implements Runnable {
         socket.send(buf.array());
     }
 
+    @Override
     public void run() {
         Poller items = zmqContext.poller(1);
         items.register(socket, Poller.POLLIN);
@@ -101,6 +119,11 @@ public class Client implements Runnable {
         }
     }
 
+    /**
+     * Disconnect client from server.
+     *
+     * @throws Exception when thread gets interrupted
+     */
     public void disconnect() throws Exception {
         thread.interrupt();
         thread.join();

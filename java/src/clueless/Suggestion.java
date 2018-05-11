@@ -18,6 +18,12 @@ public class Suggestion implements Serializable {
         this.weapon = weapon;
     }
 
+    public void normalize() {
+        suspect = (SuspectCard) SuspectCard.fetch(suspect.getId());
+        room = (RoomCard) RoomCard.fetch(room.getId());
+        weapon = (WeaponCard) WeaponCard.fetch(weapon.getId());
+    }
+
     public Suggestion(Card c1, Card c2, Card c3) throws Exception {
         guess(c1);
         guess(c2);

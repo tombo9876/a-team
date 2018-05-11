@@ -1,28 +1,24 @@
 package clueless.client.cli;
 
+import clueless.Card;
+import clueless.GameStatePulse;
+import clueless.Suggestion;
+import clueless.client.*;
+import clueless.io.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import clueless.client.*;
-import clueless.io.*;
-
-// TODO: Fix leaky abstraction.
-import clueless.GameStatePulse;
-import clueless.Suggestion;
-import clueless.Card;
-
-public class CLIEventHandler {
+public class CLIEventHandler extends EventHandler {
 
     private static final Logger logger = LogManager.getLogger(CLIEventHandler.class);
 
     ClientState clientState;
-    Watchdog watchdog;
 
-    CLIEventHandler(ClientState state, Watchdog wd) {
+    CLIEventHandler(ClientState state) {
         clientState = state;
-        watchdog = wd;
     }
 
+    @Override
     public void onMessageEvent(Client client, Message msg) {
         switch (msg.getMessageID()) {
             case MESSAGE_CHAT_FROM_SERVER:
@@ -32,9 +28,11 @@ public class CLIEventHandler {
             case MESSAGE_PULSE:
                 logger.trace("Got a watchdog pulse.");
                 GameStatePulse gameState = (GameStatePulse) msg.getMessageData();
-				
-                clientState.setGameState(gameState);
-                watchdog.pulse();
+                String statusStr = clientState.setGameState(gameState);
+                if (statusStr != null) {
+                    System.out.println(statusStr);
+                }
+                clientState.pulse();
                 break;
             case MESSAGE_SERVER_FAIL_CONFIG:
                 logger.info(msg);
@@ -59,9 +57,11 @@ public class CLIEventHandler {
                 break;
             case MESSAGE_SERVER_RESPONSE_SUGGEST:
                 logger.info(msg);
-                clientState.suggestResponse(
-                        (Card) msg.getMessageData(),
-                        msg.getToUuid().equals(client.uuid.toString()));
+                String resp =
+                        clientState.suggestResponse(
+                                (Card) msg.getMessageData(),
+                                msg.getToUuid().equals(client.uuid.toString()));
+                logger.info(resp);
                 break;
             default:
                 logger.info("Message: " + msg);

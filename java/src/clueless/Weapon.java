@@ -5,7 +5,11 @@ import java.io.Serializable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-/** @author tombo */
+/**
+ * Represents a Weapon piece.
+ *
+ * @author ateam
+ */
 public class Weapon implements Serializable {
 
     private static final Logger logger = LogManager.getLogger(Weapon.class);
@@ -13,27 +17,46 @@ public class Weapon implements Serializable {
     private WeaponCard weapon;
     private Room current_location;
 
+    /**
+     * Constructor for Weapon
+     *
+     * @param weapon WeaponCard that matches this Weapon piece
+     */
     public Weapon(WeaponCard weapon) {
         this.setWeapon(weapon);
-        logger.debug("Creating weapon " + weapon.toString());
+        logger.trace("Creating weapon " + weapon.toString());
     }
 
-    /** @return the weapon */
+    /**
+     * Fetch WeaponCard representing this Weapon type.
+     *
+     * @return WeaponCard
+     */
     public WeaponCard getWeapon() {
         return weapon;
     }
 
-    /** @param weapon the weapon to set */
-    public final void setWeapon(WeaponCard weapon) {
+    private final void setWeapon(WeaponCard weapon) {
         this.weapon = weapon;
     }
 
-    /** @return the current_location */
+    /**
+     * Fetch the current Room location of the Weapon piece.
+     *
+     * <p>TODO: Make sure Weapon currentLocation is never null.
+     *
+     * @return the current_location (possibly null)
+     */
     public Room getCurrent_location() {
         return current_location;
     }
 
-    public void moveForSuggestion(GameBoard board, RoomCard dest) {
+    /**
+     * Move Weapon to a Room for a suggestion sequence.
+     *
+     * @param dest The Room to move the Weapon piece to.
+     */
+    public void moveForSuggestion(RoomCard dest) {
 
         if (current_location != null) {
             // TODO: Make weapons always exist in a room.

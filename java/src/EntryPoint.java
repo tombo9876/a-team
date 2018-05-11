@@ -1,4 +1,5 @@
 import clueless.client.cli.*;
+import clueless.client.gooey.*;
 import clueless.server.*;
 import java.io.PrintStream;
 import org.apache.logging.log4j.Level;
@@ -23,9 +24,12 @@ public class EntryPoint {
         out.println("Arguments:");
         out.println("   --help           This help message.");
         out.println("   --enable-logger  Enable version logging.");
+        out.println("   --seed           PRNG Seed (Server Only)");
+        out.println("   --difficulty     Game difficulty (Server Only) <easy, med, hard>");
         out.println("\nMutually Exclusive Arguments:");
         out.println("   --server-only    Run this process as dedicated server.");
         out.println("   --cli-client     Start the CLI Client");
+        out.println("   --gui-client     Start the GUI Client");
         out.println("");
     }
 
@@ -34,9 +38,43 @@ public class EntryPoint {
 
         Server server;
         Thread serverThread;
+        Integer seed = null;
+        String difficulty = null;
+        boolean hasSeed = false;
+        boolean hasDifficulty = false;
+
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--seed")) {
+                seed = new Integer(args[i + 1]);
+                hasSeed = true;
+                // break;
+            }
+
+            if (args[i].equals("--difficulty")) {
+                difficulty = new String(args[i + 1]);
+                hasDifficulty = true;
+                // break;
+            }
+        }
 
         try {
-            server = new Server();
+            int internalDifficulty = 0;
+            if (difficulty.equals("easy")) {
+                internalDifficulty = 0;
+            } else if (difficulty.equals("med")) {
+                internalDifficulty = 1;
+            } else {
+                internalDifficulty = 2;
+            }
+            if (hasSeed && hasDifficulty) {
+                server = new Server(seed, internalDifficulty);
+            } else if (hasSeed) {
+                server = new Server(seed, 0);
+            } else if (hasDifficulty) {
+                server = new Server(System.currentTimeMillis(), internalDifficulty);
+            } else {
+                server = new Server();
+            }
             serverThread = new Thread(server);
             serverThread.start();
 
@@ -54,6 +92,11 @@ public class EntryPoint {
     public static void startCliClient(String[] args) {
         logger.info("Starting CLI Client");
         CLI.main(args);
+    }
+
+    public static void startGooeyClient(String[] args) {
+        logger.info("Starting Gooey Client");
+        Gooey.main(args);
     }
 
     public static void main(String[] args) {
@@ -90,6 +133,14 @@ public class EntryPoint {
         for (String arg : args) {
             if (arg.equals("--cli-client")) {
                 startCliClient(args);
+                return;
+            }
+        }
+
+        // Check if we're using a CLI Client
+        for (String arg : args) {
+            if (arg.equals("--gui-client")) {
+                startGooeyClient(args);
                 return;
             }
         }

@@ -7,7 +7,11 @@ import java.util.Random;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-/** @author tombo */
+/**
+ * Represents the Dealer of the Cards
+ *
+ * @author ateam
+ */
 public class Dealer {
 
     private static final Logger logger = LogManager.getLogger(Dealer.class);
@@ -17,6 +21,11 @@ public class Dealer {
     private final ArrayList<WeaponCard> allWeaponCards;
     private final Random prng;
 
+    /**
+     * Constructor
+     *
+     * @param seed The seed for the PRNG
+     */
     public Dealer(long seed) {
         logger.debug("Setting up CardDeck");
 
@@ -32,6 +41,11 @@ public class Dealer {
         Collections.shuffle(allWeaponCards, prng);
     }
 
+    /**
+     * Creates and populates the Envelope
+     *
+     * @return A new populated Envelope
+     */
     public Envelope populateEnvelope() {
         // grab 1 random card from each card type array and put it in envelope
         // remove that card from the list
@@ -41,28 +55,15 @@ public class Dealer {
         return new Envelope(suspect, location, weapon);
     }
 
-    private void add(Card card) {
-        logger.debug("Adding new card " + card.toString());
-        if (card instanceof RoomCard) {
-            allLocationCards.add((RoomCard) card);
-            return;
-        }
-
-        if (card instanceof SuspectCard) {
-            allSuspectCards.add((SuspectCard) card);
-            return;
-        }
-
-        if (card instanceof WeaponCard) {
-            allWeaponCards.add((WeaponCard) card);
-            return;
-        }
-
-        return;
-    }
-
-    public static int FaceUpCardsByPlayerCount(int numUsers, boolean classicClue) {
-        if (!classicClue) {
+    /**
+     * Helper to determine the number of face up cards to display.
+     *
+     * @param numUsers Number of Players being dealt cards
+     * @param difficulty 0 (easy), 1 (medium), 2 (hard) difficulty to specify how many face up cards
+     * @return number of cards faceup
+     */
+    public static int FaceUpCardsByPlayerCount(int numUsers, int difficulty) {
+        if (difficulty == 0) {
             switch (numUsers) {
                 case 3:
                 case 4:
@@ -75,7 +76,7 @@ public class Dealer {
                     return 6;
             }
         }
-        if (classicClue) {
+        if (difficulty == 1) {
             switch (numUsers) {
                 case 3:
                     return 0;
@@ -89,13 +90,23 @@ public class Dealer {
                     return 0;
             }
         }
+        if (difficulty == 2) {
+            return 0;
+        }
         return 0;
     }
 
-    public void dealCards(PlayerMgr players, ArrayList<Card> faceUpCards) {
+    /**
+     * Deals the card to the Player objects and the face up pile
+     *
+     * @param players Players to deal cards to.
+     * @param faceUpCards Face up card pile list.
+     * @param difficulty 0 (easy), 1 (medium), 2 (hard) difficulty to specify how many face up cards
+     */
+    public void dealCards(PlayerMgr players, ArrayList<Card> faceUpCards, int difficulty) {
 
         logger.debug("Dealing to " + players.count() + " players.");
-        int numberOfFaceUpCards = Dealer.FaceUpCardsByPlayerCount(players.count(), true);
+        int numberOfFaceUpCards = Dealer.FaceUpCardsByPlayerCount(players.count(), difficulty);
 
         ArrayList<Card> allCards = new ArrayList<>();
         allCards.addAll(allLocationCards);

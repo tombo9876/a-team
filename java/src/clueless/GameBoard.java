@@ -14,16 +14,16 @@ public class GameBoard {
     public GameBoard() {
         // Locations must be created first so we have places to put things.
         locations = new LocationMap();
-        suspects = new SuspectMap(this);
+        suspects = new SuspectMap();
         weapons = new WeaponMap();
 
         faceUpCards = new ArrayList<Card>();
     }
 
-    public void dealCards(PlayerMgr players) {
-        Dealer dealer = new Dealer(System.currentTimeMillis());
+    public void dealCards(PlayerMgr players, long seed, int difficulty) {
+        Dealer dealer = new Dealer(seed);
         envelope = dealer.populateEnvelope();
-        dealer.dealCards(players, faceUpCards);
+        dealer.dealCards(players, faceUpCards, difficulty);
     }
 
     public ArrayList<Card> getFaceUpCards() {

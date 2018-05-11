@@ -7,12 +7,22 @@ import java.nio.ByteBuffer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * Class for writing a ByteBuffer to an OutputStream
+ *
+ * @author ateam
+ */
 public class ByteBufferBackedOutputStream extends OutputStream {
 
     private static final Logger logger = LogManager.getLogger(ByteBufferBackedOutputStream.class);
 
     ByteBuffer buf;
 
+    /**
+     * Constructor
+     *
+     * @param buf Buffer to send to OutputStream (for writing)
+     */
     public ByteBufferBackedOutputStream(ByteBuffer buf) {
         this.buf = buf;
     }
